@@ -28,6 +28,7 @@
 #include "mktplinkfw-lib.h"
 
 #define HEADER_VERSION_V1	0x01000000
+#define HEADER_VERSION_V11	0x01010000
 #define HEADER_VERSION_V2	0x02000000
 
 struct fw_header {
@@ -62,7 +63,19 @@ struct fw_header {
 struct fw_region {
 	char		name[4];
 	uint32_t	code;
+	uint16_t	code_v11;
 };
+
+#define CC_FOOTER_LEN 1024
+
+struct cc_footer {
+	uint16_t	region;
+	uint16_t	crc;
+	uint8_t		flags;
+	uint8_t		padding[5];
+	uint32_t	n_regions;
+	uint16_t	regions[];
+} __attribute__ ((packed));
 
 
 /*
@@ -173,9 +186,9 @@ static struct flash_layout layouts[] = {
 
 static const struct fw_region regions[] = {
 	/* Default region (universal) uses code 0 as well */
-	{"US", 1},
-	{"EU", 0},
-	{"BR", 0},
+	{"US", 1, 118},
+	{"EU", 0, 39},
+	{"BR", 0, 0},
 };
 
 static const struct fw_region * find_region(const char *country) {
@@ -352,6 +365,9 @@ static int check_options(void)
 
 	if (opt_hdr_ver == 1) {
 		hdr_ver = HEADER_VERSION_V1;
+	} else if (opt_hdr_ver == 257) {
+		hdr_ver = HEADER_VERSION_V11;
+		skip_header_jffs2_eof_alignment = 1;
 	} else if (opt_hdr_ver == 2) {
 		hdr_ver = HEADER_VERSION_V2;
 	} else {
@@ -387,7 +403,13 @@ void fill_header(char *buf, int len)
 
 		hdr->fw_length = htonl(layout->fw_max_len);
 		hdr->rootfs_ofs = htonl(rootfs_ofs);
-		hdr->rootfs_len = htonl(rootfs_info.file_size);
+		if (hdr_ver == HEADER_VERSION_V11) {
+			// Update the rootfs length to point just before the cc footer
+			hdr->rootfs_len = htonl(len - rootfs_ofs - CC_FOOTER_LEN);
+		} else {
+			hdr->rootfs_len = htonl(rootfs_info.file_size);
+		}
+
 	}
 
 	if (combined && rootfs_ofs_calc) {
@@ -398,7 +420,7 @@ void fill_header(char *buf, int len)
 	hdr->ver_mid = htons(fw_ver_mid);
 	hdr->ver_lo = htons(fw_ver_lo);
 
-	if (region) {
+	if (hdr_ver != HEADER_VERSION_V11 && region) {
 		hdr->region_code = htonl(region->code);
 		snprintf(
 			hdr->region_str1, sizeof(hdr->region_str1), "00000000;%02X%02X%02X%02X;",
@@ -419,8 +441,39 @@ void fill_header(char *buf, int len)
 		get_md5(buf, len, hdr->md5sum1);
 }
 
+static uint16_t crc(void *buf, int len)
+{
+	uint16_t crc = 0;
+	int i;
+
+	for (i = 0; i < len; i += 2) {
+		crc ^= *(uint16_t *) (buf + i);
+	}
+
+	return ~crc;
+}
+
+static int add_footer_v11(char *buf, int len)
+{
+	struct cc_footer *cc = (struct cc_footer *) (buf + len);
+
+	memset(cc, 0, sizeof(*cc));
+
+	cc->region = htons(region->code_v11 | 0x0100);
+	cc->flags = 0x01;
+	cc->n_regions = htonl(1);
+	cc->regions[0] = htons(region->code_v11);
+
+	cc->crc = crc(cc, 0x19e);
+
+	return len + CC_FOOTER_LEN;
+}
+
 int add_footer(char *buf, int len)
 {
+	if (hdr_ver == HEADER_VERSION_V11)
+		return add_footer_v11(buf, len);
+
 	return len;
 }
 
@@ -446,6 +499,7 @@ static int inspect_fw(void)
 	inspect_fw_phexdec("File size", inspect_info.file_size);
 
 	if ((ntohl(hdr->version) != HEADER_VERSION_V1) &&
+	    (ntohl(hdr->version) != HEADER_VERSION_V11) &&
 	    (ntohl(hdr->version) != HEADER_VERSION_V2)) {
 		ERR("file does not seem to have V1/V2 header!\n");
 		goto out_free_buf;
