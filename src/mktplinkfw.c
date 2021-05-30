@@ -418,6 +418,11 @@ void fill_header(char *buf, int len)
 		get_md5(buf, len, hdr->md5sum1);
 }
 
+int add_footer(char *buf, int len)
+{
+	return len;
+}
+
 static int inspect_fw(void)
 {
 	char *buf;
