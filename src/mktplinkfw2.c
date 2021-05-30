@@ -104,6 +104,7 @@ static struct file_info boot_info;
 int combined;
 int strip_padding;
 int add_jffs2_eof;
+int skip_header_jffs2_eof_alignment;
 
 static struct file_info inspect_info;
 static int extract = 0;
