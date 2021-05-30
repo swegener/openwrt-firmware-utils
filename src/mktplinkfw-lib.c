@@ -37,6 +37,7 @@ extern uint32_t rootfs_align;
 extern int combined;
 extern int strip_padding;
 extern int add_jffs2_eof;
+extern int skip_header_jffs2_eof_alignment;
 
 static unsigned char jffs2_eof_mark[4] = {0xde, 0xad, 0xc0, 0xde};
 
@@ -241,8 +242,13 @@ int build_fw(size_t header_size)
 
 		writelen = rootfs_ofs + rootfs_info.file_size;
 
-		if (add_jffs2_eof)
-			writelen = pad_jffs2(buf, writelen, layout->fw_max_len);
+		if (add_jffs2_eof) {
+			if (skip_header_jffs2_eof_alignment) {
+				writelen = pad_jffs2(buf + header_size, writelen - header_size, layout->fw_max_len - header_size) + header_size;
+			} else {
+				writelen = pad_jffs2(buf, writelen, layout->fw_max_len);
+			}
+		}
 	}
 
 	if (!strip_padding)
