@@ -41,6 +41,7 @@ extern int add_jffs2_eof;
 static unsigned char jffs2_eof_mark[4] = {0xde, 0xad, 0xc0, 0xde};
 
 void fill_header(char *buf, int len);
+int add_footer(char *buf, int len);
 
 struct flash_layout *find_layout(struct flash_layout *layouts, const char *id)
 {
@@ -247,6 +248,7 @@ int build_fw(size_t header_size)
 	if (!strip_padding)
 		writelen = buflen;
 
+	writelen = add_footer(buf, writelen);
 	fill_header(buf, writelen);
 	ret = write_fw(ofname, buf, writelen);
 	if (ret)
