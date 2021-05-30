@@ -432,6 +432,11 @@ void fill_header(char *buf, int len) {
 	fill_header_bootloader(buf, len, 0);
 }
 
+int add_footer(char *buf, int len)
+{
+	return len;
+}
+
 static int inspect_fw(void)
 {
 	char *buf;
